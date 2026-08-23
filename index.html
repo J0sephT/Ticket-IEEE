@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Check-in</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;margin:0;background:#14142b;color:#fff;text-align:center}
+  h2{padding:14px 0 0;margin:0;font-size:17px;font-weight:500}
+  #config{padding:16px}
+  #config input{width:100%;padding:10px;border-radius:8px;border:0;font-size:13px;margin:8px 0}
+  #reader{width:100%;max-width:420px;margin:10px auto}
+  #resultado{min-height:110px;padding:18px;margin:12px 14px;border-radius:16px;font-size:21px;font-weight:600;display:flex;flex-direction:column;justify-content:center}
+  .ok{background:#0f6e56}.mal{background:#a32d2d}.neutro{background:#232347;font-size:14px;font-weight:400;color:#aaa}
+  #nombre{font-size:15px;font-weight:400;margin-top:6px;opacity:.9}
+  #aviso{font-size:12px;font-weight:400;margin-top:10px;background:rgba(0,0,0,.28);padding:7px;border-radius:8px}
+  button{background:#4f46e5;color:#fff;border:0;padding:14px 28px;border-radius:10px;font-size:15px;margin-bottom:22px}
+  .oculto{display:none}
+</style>
+</head>
+<body>
+<h2>Check-in</h2>
+
+<div id="config">
+  <p style="font-size:13px;color:#aaa;margin:4px 0">Pega la URL de tu app web de Apps Script (termina en /exec)</p>
+  <input id="url" placeholder="https://script.google.com/macros/s/.../exec">
+  <button onclick="guardar()">Guardar y empezar</button>
+</div>
+
+<div id="app" class="oculto">
+  <div id="reader"></div>
+  <div id="resultado" class="neutro">Apunta la cámara al código QR</div>
+  <button id="btn" class="oculto" onclick="reanudar()">Escanear siguiente</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+let escaner, procesando=false, API="";
+
+function guardar(){
+  const v=document.getElementById("url").value.trim();
+  if(!v.endsWith("/exec")){alert("La URL debe terminar en /exec");return;}
+  localStorage.setItem("apiUrl",v);
+  iniciar(v);
+}
+
+function iniciar(url){
+  API=url;
+  document.getElementById("config").classList.add("oculto");
+  document.getElementById("app").classList.remove("oculto");
+  escaner=new Html5Qrcode("reader");
+  escaner.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:240}},alEscanear)
+    .catch(e=>{
+      document.getElementById("resultado").textContent="No se pudo abrir la cámara: "+e;
+    });
+}
+
+function mostrar(clase,msg,nombre,aviso){
+  const r=document.getElementById("resultado");
+  r.className=clase;
+  r.innerHTML=msg+'<div id="nombre">'+(nombre||"")+'</div>'+
+    (aviso?'<div id="aviso">'+aviso+'</div>':"");
+  if(navigator.vibrate)navigator.vibrate(clase==="ok"?[130]:[80,60,80,60,80]);
+  document.getElementById("btn").classList.remove("oculto");
+}
+
+function alEscanear(texto){
+  if(procesando)return;
+  procesando=true;
+  escaner.pause(true);
+  const r=document.getElementById("resultado");
+  r.className="neutro";r.textContent="Validando...";
+  const fn="jsonp"+Date.now();
+  window[fn]=res=>{
+    mostrar(res.ok?"ok":"mal",res.msg,res.nombre,res.aviso);
+    delete window[fn];s.remove();
+  };
+  const s=document.createElement("script");
+  s.src=API+"?codigo="+encodeURIComponent(texto)+"&callback="+fn;
+  s.onerror=()=>{mostrar("mal","Sin conexión","Revisa los datos del celular");delete window[fn];};
+  document.body.appendChild(s);
+}
+
+function reanudar(){
+  procesando=false;
+  document.getElementById("btn").classList.add("oculto");
+  const r=document.getElementById("resultado");
+  r.className="neutro";r.textContent="Apunta la cámara al código QR";
+  escaner.resume();
+}
+
+const guardada=localStorage.getItem("apiUrl");
+if(guardada){document.getElementById("url").value=guardada;iniciar(guardada);}
+</script>
+</body>
+</html>
