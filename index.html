@@ -120,13 +120,25 @@ function alEscanear(texto){
   const r = document.getElementById("resultado");
   r.className = "neutro"; r.textContent = "Validando...";
 
+  // Cronómetro: la validación tarda 2-4s (Apps Script), que se vea que avanza
+  let t = 0;
+  const reloj = setInterval(() => {
+    t += 0.1;
+    r.innerHTML = 'Validando<div id="nombre">' + t.toFixed(1) + 's</div>';
+  }, 100);
+
   const fn = "jsonp" + Date.now();
   const s = document.createElement("script");
-  const limpiar = () => { delete window[fn]; if (s.parentNode) s.remove(); };
-  window[fn] = res => { mostrar(res.ok ? "ok" : "mal", res.msg, res.nombre, res.aviso); limpiar(); };
-  s.onerror = () => { mostrar("mal", "Sin conexión", "Revisa los datos del celular"); limpiar(); };
+  const limpiar = () => { clearInterval(reloj); delete window[fn]; if (s.parentNode) s.remove(); };
+  window[fn] = res => { limpiar(); mostrar(res.ok ? "ok" : "mal", res.msg, res.nombre, res.aviso); };
+  s.onerror = () => { limpiar(); mostrar("mal", "Sin conexión", "Revisa los datos del celular"); };
   s.src = API + "?codigo=" + encodeURIComponent(texto) + "&callback=" + fn;
   document.body.appendChild(s);
+
+  // Si a los 20s no respondió, liberar para no dejar la fila trabada
+  setTimeout(() => {
+    if (window[fn]) { limpiar(); mostrar("mal", "Sin respuesta", "Vuelve a escanear"); }
+  }, 20000);
 }
 
 function reanudar(){
