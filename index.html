@@ -2,20 +2,27 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Check-in</title>
 <style>
   *{box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;margin:0;background:#14142b;color:#fff;text-align:center}
-  h2{padding:14px 0 0;margin:0;font-size:17px;font-weight:500}
-  #config{padding:16px}
-  #config input{width:100%;padding:10px;border-radius:8px;border:0;font-size:13px;margin:8px 0}
-  #reader{width:100%;max-width:420px;margin:10px auto}
-  #resultado{min-height:110px;padding:18px;margin:12px 14px;border-radius:16px;font-size:21px;font-weight:600;display:flex;flex-direction:column;justify-content:center}
-  .ok{background:#0f6e56}.mal{background:#a32d2d}.neutro{background:#232347;font-size:14px;font-weight:400;color:#aaa}
-  #nombre{font-size:15px;font-weight:400;margin-top:6px;opacity:.9}
-  #aviso{font-size:12px;font-weight:400;margin-top:10px;background:rgba(0,0,0,.28);padding:7px;border-radius:8px}
-  button{background:#4f46e5;color:#fff;border:0;padding:14px 28px;border-radius:10px;font-size:15px;margin-bottom:22px}
+  body{font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;margin:0;
+       background:#14142b;color:#fff;text-align:center;-webkit-user-select:none;user-select:none}
+  h2{padding:12px 0 0;margin:0;font-size:16px;font-weight:500;opacity:.85}
+  #config{padding:18px}
+  #config input{width:100%;padding:11px;border-radius:8px;border:0;font-size:13px;margin:8px 0}
+  #reader{width:100%;max-width:460px;margin:8px auto;border-radius:12px;overflow:hidden}
+  #reader video{width:100%!important;height:auto!important}
+  #resultado{min-height:112px;padding:16px;margin:10px 12px;border-radius:16px;font-size:21px;
+             font-weight:600;display:flex;flex-direction:column;justify-content:center}
+  .ok{background:#0f6e56}.mal{background:#a32d2d}
+  .neutro{background:#232347;font-size:14px;font-weight:400;color:#9a9ac0}
+  #nombre{font-size:15px;font-weight:400;margin-top:6px;opacity:.92}
+  #aviso{font-size:12px;font-weight:400;margin-top:9px;background:rgba(0,0,0,.28);padding:7px;border-radius:8px}
+  .barra{display:flex;gap:8px;justify-content:center;padding:0 12px 18px;flex-wrap:wrap}
+  button{background:#4f46e5;color:#fff;border:0;padding:13px 22px;border-radius:10px;font-size:15px}
+  button.sec{background:#2e2e52}
+  #contador{font-size:12px;color:#7a7aa8;padding-bottom:14px}
   .oculto{display:none}
 </style>
 </head>
@@ -23,75 +30,115 @@
 <h2>Check-in</h2>
 
 <div id="config">
-  <p style="font-size:13px;color:#aaa;margin:4px 0">Pega la URL de tu app web de Apps Script (termina en /exec)</p>
-  <input id="url" placeholder="https://script.google.com/macros/s/.../exec">
+  <p style="font-size:13px;color:#9a9ac0;margin:4px 0">Pega la URL de Apps Script (termina en /exec)</p>
+  <input id="url" placeholder="https://script.google.com/macros/s/.../exec" autocapitalize="off" autocorrect="off">
   <button onclick="guardar()">Guardar y empezar</button>
 </div>
 
 <div id="app" class="oculto">
   <div id="reader"></div>
   <div id="resultado" class="neutro">Apunta la cámara al código QR</div>
-  <button id="btn" class="oculto" onclick="reanudar()">Escanear siguiente</button>
+  <div class="barra">
+    <button id="btn" class="oculto" onclick="reanudar()">Escanear siguiente</button>
+    <button id="luz" class="sec oculto" onclick="linterna()">🔦 Linterna</button>
+    <button class="sec" onclick="reset()">Cambiar URL</button>
+  </div>
+  <div id="contador">0 validadas</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script>
-let escaner, procesando=false, API="";
+let escaner, procesando = false, API = "", luzOn = false, validadas = 0;
 
 function guardar(){
-  const v=document.getElementById("url").value.trim();
-  if(!v.endsWith("/exec")){alert("La URL debe terminar en /exec");return;}
-  localStorage.setItem("apiUrl",v);
+  const v = document.getElementById("url").value.trim();
+  if(!v.endsWith("/exec")) { alert("La URL debe terminar en /exec"); return; }
+  localStorage.setItem("apiUrl", v);
   iniciar(v);
 }
 
+function reset(){
+  localStorage.removeItem("apiUrl");
+  location.reload();
+}
+
 function iniciar(url){
-  API=url;
+  API = url;
   document.getElementById("config").classList.add("oculto");
   document.getElementById("app").classList.remove("oculto");
-  escaner=new Html5Qrcode("reader");
-  escaner.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:240}},alEscanear)
-    .catch(e=>{
-      document.getElementById("resultado").textContent="No se pudo abrir la cámara: "+e;
+  escaner = new Html5Qrcode("reader", { verbose:false });
+
+  // Resolución alta + enfoque continuo: sin esto el navegador
+  // pide 640x480 por defecto y el QR se ve borroso.
+  const config = {
+    fps: 15,
+    qrbox: (w,h) => { const m = Math.floor(Math.min(w,h) * 0.75); return {width:m, height:m}; },
+    aspectRatio: 1.0,
+    videoConstraints: {
+      facingMode: "environment",
+      width:  { min: 640, ideal: 1920 },
+      height: { min: 480, ideal: 1080 },
+      advanced: [{ focusMode: "continuous" }]
+    },
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+  };
+
+  escaner.start({ facingMode:"environment" }, config, alEscanear)
+    .then(() => {
+      const cap = escaner.getRunningTrackCapabilities ? escaner.getRunningTrackCapabilities() : {};
+      if (cap && cap.torch) document.getElementById("luz").classList.remove("oculto");
+      if (cap && cap.zoom) {
+        try { escaner.applyVideoConstraints({ advanced:[{ zoom: Math.min(2, cap.zoom.max || 1) }] }); } catch(e){}
+      }
+    })
+    .catch(e => {
+      document.getElementById("resultado").textContent = "No se pudo abrir la cámara: " + e;
     });
 }
 
-function mostrar(clase,msg,nombre,aviso){
-  const r=document.getElementById("resultado");
-  r.className=clase;
-  r.innerHTML=msg+'<div id="nombre">'+(nombre||"")+'</div>'+
-    (aviso?'<div id="aviso">'+aviso+'</div>':"");
-  if(navigator.vibrate)navigator.vibrate(clase==="ok"?[130]:[80,60,80,60,80]);
+function linterna(){
+  luzOn = !luzOn;
+  escaner.applyVideoConstraints({ advanced: [{ torch: luzOn }] })
+    .then(()=> document.getElementById("luz").textContent = luzOn ? "🔦 Apagar" : "🔦 Linterna")
+    .catch(()=> alert("Este celular no permite controlar la linterna."));
+}
+
+function mostrar(clase, msg, nombre, aviso){
+  const r = document.getElementById("resultado");
+  r.className = clase;
+  r.innerHTML = msg + '<div id="nombre">' + (nombre||"") + '</div>' +
+                (aviso ? '<div id="aviso">' + aviso + '</div>' : "");
+  if (navigator.vibrate) navigator.vibrate(clase === "ok" ? [130] : [80,60,80,60,80]);
+  if (clase === "ok") { validadas++; document.getElementById("contador").textContent = validadas + " validadas"; }
   document.getElementById("btn").classList.remove("oculto");
 }
 
 function alEscanear(texto){
-  if(procesando)return;
-  procesando=true;
+  if (procesando) return;
+  procesando = true;
   escaner.pause(true);
-  const r=document.getElementById("resultado");
-  r.className="neutro";r.textContent="Validando...";
-  const fn="jsonp"+Date.now();
-  window[fn]=res=>{
-    mostrar(res.ok?"ok":"mal",res.msg,res.nombre,res.aviso);
-    delete window[fn];s.remove();
-  };
-  const s=document.createElement("script");
-  s.src=API+"?codigo="+encodeURIComponent(texto)+"&callback="+fn;
-  s.onerror=()=>{mostrar("mal","Sin conexión","Revisa los datos del celular");delete window[fn];};
+  const r = document.getElementById("resultado");
+  r.className = "neutro"; r.textContent = "Validando...";
+
+  const fn = "jsonp" + Date.now();
+  const s = document.createElement("script");
+  const limpiar = () => { delete window[fn]; if (s.parentNode) s.remove(); };
+  window[fn] = res => { mostrar(res.ok ? "ok" : "mal", res.msg, res.nombre, res.aviso); limpiar(); };
+  s.onerror = () => { mostrar("mal", "Sin conexión", "Revisa los datos del celular"); limpiar(); };
+  s.src = API + "?codigo=" + encodeURIComponent(texto) + "&callback=" + fn;
   document.body.appendChild(s);
 }
 
 function reanudar(){
-  procesando=false;
+  procesando = false;
   document.getElementById("btn").classList.add("oculto");
-  const r=document.getElementById("resultado");
-  r.className="neutro";r.textContent="Apunta la cámara al código QR";
+  const r = document.getElementById("resultado");
+  r.className = "neutro"; r.textContent = "Apunta la cámara al código QR";
   escaner.resume();
 }
 
-const guardada=localStorage.getItem("apiUrl");
-if(guardada){document.getElementById("url").value=guardada;iniciar(guardada);}
+const guardada = localStorage.getItem("apiUrl");
+if (guardada) { document.getElementById("url").value = guardada; iniciar(guardada); }
 </script>
 </body>
 </html>
